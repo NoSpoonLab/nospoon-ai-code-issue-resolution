@@ -1,0 +1,10 @@
+import { GitDiffResult } from '../types';
+export declare function sanitizeBranchName(prefix: string, title: string): string;
+export declare function createBranch(branchName: string): Promise<void>;
+export declare function detectChanges(): Promise<GitDiffResult>;
+export declare function getCurrentHead(): Promise<string>;
+export declare function detectCommittedChangesSince(baseSha: string): Promise<string[]>;
+export declare function stageFiles(files: string[]): Promise<void>;
+export declare function commitChanges(title: string): Promise<void>;
+export declare function pushBranch(branchName: string): Promise<void>;
+export declare function configureGitUser(): Promise<void>;

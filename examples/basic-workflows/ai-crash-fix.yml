@@ -1,0 +1,58 @@
+name: AI Crash Fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      crash_report:
+        description: JSON string with Unity/Backtrace crash report
+        required: true
+        type: string
+      base_branch:
+        description: Base branch for PR
+        required: false
+        default: main
+        type: string
+      dry_run:
+        description: Analyze only without commit/PR
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run AI Code Issue Resolution
+        uses: NoSpoonLab/nospoon-ai-code-issue-resolution@main
+        with:
+          crash_report: ${{ inputs.crash_report }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          base_branch: ${{ inputs.base_branch }}
+
+          # Core behavior
+          dry_run: ${{ inputs.dry_run }}
+          max_turns: "100"
+          allowed_tools: "Read,Edit,Write,Bash,Grep,Glob,WebSearch,WebFetch"
+
+          # Claude behavior
+          claude_permission_mode: "plan"
+          claude_auto_apply_plan: "true"
+          claude_model: "claude-opus-4-6"
+          claude_effort: "high"
+          claude_betas: ""
+
+          # Router explicitly disabled
+          use_router: "false"

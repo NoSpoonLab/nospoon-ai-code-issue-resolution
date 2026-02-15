@@ -1,0 +1,110 @@
+name: 'AI Code Issue Resolution'
+description: 'Automatically resolve code issues using Claude Code CLI - analyzes bugs, applies fixes, and creates PRs for human review'
+author: 'nospoon-ai'
+
+branding:
+  icon: 'tool'
+  color: 'orange'
+
+inputs:
+  crash_report:
+    description: 'JSON string containing a Unity/Backtrace crash report'
+    required: true
+  anthropic_api_key:
+    description: 'Anthropic API key for Claude'
+    required: true
+  github_token:
+    description: 'GitHub token for creating PRs'
+    required: false
+    default: ${{ github.token }}
+  base_branch:
+    description: 'Base branch for the PR (defaults to repository default branch)'
+    required: false
+  branch_prefix:
+    description: 'Prefix for the fix branch name'
+    required: false
+    default: 'fix/crash-'
+  max_turns:
+    description: 'Maximum number of turns for Claude Code CLI'
+    required: false
+    default: '100'
+  allowed_tools:
+    description: 'Comma-separated list of tools allowed for Claude'
+    required: false
+    default: 'Read,Edit,Write,Bash,Grep,Glob,WebSearch,WebFetch'
+  blocked_directories:
+    description: 'Comma-separated repo-relative directories where Claude changes are forbidden (e.g. "Assets/Core,Packages")'
+    required: false
+    default: ''
+  pr_labels:
+    description: 'Comma-separated labels for the PR'
+    required: false
+    default: 'crash-fix,auto-generated'
+  dry_run:
+    description: 'If true, only analyze the crash report without creating a PR'
+    required: false
+    default: 'false'
+  use_router:
+    description: 'If true, route the crash report to remote workflow(s) based on router rules and skip local Claude execution when matched'
+    required: false
+    default: 'false'
+  router_rules_json:
+    description: 'JSON array of router rules. Each rule includes match_prefixes, target, and optional rewrite'
+    required: false
+    default: ''
+  router_mode:
+    description: 'Routing mode: first-match (single dispatch) or fanout (dispatch all matches)'
+    required: false
+    default: 'first-match'
+  router_default_target_json:
+    description: 'Optional JSON target used when no router rule matches'
+    required: false
+    default: ''
+  additional_prompt:
+    description: 'Additional instructions appended to the default prompt (project context, special rules, etc.)'
+    required: false
+    default: ''
+  claude_permission_mode:
+    description: 'Claude permission mode (plan, dontAsk, etc.)'
+    required: false
+    default: 'plan'
+  claude_auto_apply_plan:
+    description: 'If true and permission mode is plan, run a second pass in dontAsk mode to apply changes'
+    required: false
+    default: 'true'
+  claude_model:
+    description: 'Claude model to use'
+    required: false
+    default: 'claude-opus-4-6'
+  claude_effort:
+    description: 'Reasoning effort level (low, medium, high)'
+    required: false
+    default: 'high'
+  claude_betas:
+    description: 'Comma-separated Claude beta flags'
+    required: false
+    default: ''
+
+outputs:
+  pr_url:
+    description: 'URL of the created Pull Request'
+  pr_number:
+    description: 'Number of the created Pull Request'
+  branch_name:
+    description: 'Name of the created branch'
+  claude_analysis:
+    description: 'Claude analysis summary'
+  files_changed:
+    description: 'Comma-separated list of files changed'
+  blocked_files:
+    description: 'Comma-separated list of changed files that matched blocked_directories'
+  router_used:
+    description: 'true if router dispatched remote workflow(s), else false/empty'
+  routed_targets:
+    description: 'Comma-separated dispatch targets in the form owner/repo:workflow@ref'
+  cost_usd:
+    description: 'Cost of the Claude API call in USD'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

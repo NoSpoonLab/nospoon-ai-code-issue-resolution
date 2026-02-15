@@ -1,0 +1,63 @@
+name: AI Crash Fix (Router)
+
+on:
+  workflow_dispatch:
+    inputs:
+      crash_report:
+        description: JSON string with Unity/Backtrace crash report
+        required: true
+        type: string
+      base_branch:
+        description: Base branch for PR in target repo
+        required: false
+        default: main
+        type: string
+      dry_run:
+        description: Analyze only without commit/PR
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run AI Code Issue Resolution (with router)
+        uses: NoSpoonLab/nospoon-ai-code-issue-resolution@main
+        with:
+          crash_report: ${{ inputs.crash_report }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.AI_FIX_GH_TOKEN }}
+          base_branch: ${{ inputs.base_branch }}
+
+          # Core behavior
+          dry_run: ${{ inputs.dry_run }}
+          max_turns: "100"
+          allowed_tools: "Read,Edit,Write,Bash,Grep,Glob,WebSearch,WebFetch"
+
+          # Claude behavior
+          claude_permission_mode: "plan"
+          claude_auto_apply_plan: "true"
+          claude_model: "claude-opus-4-6"
+          claude_effort: "high"
+          claude_betas: ""
+
+          # Router enabled
+          use_router: "true"
+          router_mode: "first-match"
+          router_rules_json: >-
+            [{"id":"module-to-target","match_prefixes":["ProjectModules/CorePack/"],"rewrite":{"from_prefix":"ProjectModules/CorePack/","to_prefix":"ProjectModules/"},"target":{"repository":"example-org/target-repo","workflow":"ai-crash-fix.yml","ref":"main","crash_report_input":"crash_report","dry_run_input":"dry_run","extra_inputs":{"base_branch":"main"}}}]
+          router_default_target_json: ""

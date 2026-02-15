@@ -1,0 +1,11 @@
+node_modules/
+lib/
+*.js.map
+*.tsbuildinfo
+coverage/
+.env
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.claude/
