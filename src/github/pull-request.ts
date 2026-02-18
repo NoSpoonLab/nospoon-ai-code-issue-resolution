@@ -105,19 +105,38 @@ export function buildPRTitle(report: CrashReportData): string {
 
 export function buildPRBody(options: CreatePROptions): string {
   const report = options.crashReport;
-  const filesFormatted = options.filesChanged.map((f) => `- \`${f}\``).join('\n');
+  const crashSummary = getCrashSummary(report);
+  const filesFormatted = formatFilesList(options.filesChanged);
 
-  let crashSummary = '';
-  if (report.managed_exception) {
-    crashSummary = `**${report.managed_exception.type}:** ${report.managed_exception.message}`;
-  } else if (report.native_crash?.signal_name) {
-    crashSummary = `**Native crash:** ${report.native_crash.signal_name}`;
-    if (report.native_crash.signal_code) {
-      crashSummary += ` (${report.native_crash.signal_code})`;
-    }
-  } else {
-    crashSummary = 'Unknown crash type';
-  }
+  const rootCause =
+    extractMarkdownSection(options.analysis, ['Root Cause', 'Crash Root Cause', 'Cause']) ||
+    crashSummary;
+
+  const extractedSolution = extractMarkdownSection(options.analysis, [
+    'Solution',
+    'Fix Strategy',
+    'Approach',
+    'Resolution',
+  ]);
+  const solution =
+    extractedSolution ||
+    buildDefaultSolution(report, options.filesChanged.length);
+
+  const extractedChanges = extractMarkdownSection(options.analysis, [
+    'Changes Made',
+    'Fix Applied',
+    'What Changed',
+    'Implementation',
+  ]);
+  const changesMade =
+    formatAsBulletList(extractedChanges) ||
+    [
+      '- Applied a targeted fix to prevent the crash condition described above.',
+      `- Updated ${options.filesChanged.length} file(s) listed in "Files Modified".`,
+    ].join('\n');
+
+  const extractedTestPlan = extractMarkdownSection(options.analysis, ['Test Plan', 'Testing']);
+  const testPlan = extractedTestPlan || buildDefaultReviewerTestPlan(report);
 
   return PR_BODY_TEMPLATE
     .replace('{{report_id}}', report.report_id)
@@ -125,8 +144,91 @@ export function buildPRBody(options: CreatePROptions): string {
     .replace('{{name}}', report.name)
     .replace('{{version}}', report.version)
     .replace('{{platform}}', report.platform ?? 'Unknown')
-    .replace('{{crash_summary}}', crashSummary)
-    .replace('{{analysis}}', options.analysis)
+    .replace('{{root_cause}}', rootCause)
+    .replace('{{solution}}', solution)
+    .replace('{{changes_made}}', changesMade)
     .replace('{{files}}', filesFormatted)
+    .replace('{{test_plan}}', testPlan)
+    .replace('{{analysis}}', options.analysis)
     .replace('{{cost}}', options.costUsd.toFixed(4));
+}
+
+function getCrashSummary(report: CrashReportData): string {
+  if (report.managed_exception) {
+    return `**${report.managed_exception.type}:** ${report.managed_exception.message}`;
+  }
+  if (report.native_crash?.signal_name) {
+    const signalCode = report.native_crash.signal_code ? ` (${report.native_crash.signal_code})` : '';
+    return `**Native crash:** ${report.native_crash.signal_name}${signalCode}`;
+  }
+  return 'Unknown crash type';
+}
+
+function formatFilesList(filesChanged: string[]): string {
+  if (filesChanged.length === 0) {
+    return '- No files were reported as changed.';
+  }
+  return filesChanged.map((file) => `- \`${file}\``).join('\n');
+}
+
+function formatAsBulletList(content: string | null): string | null {
+  if (!content) return null;
+  const lines = content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return null;
+
+  const bulletLike = /^(-|\*|\d+\.)\s+/;
+  if (lines.every((line) => bulletLike.test(line))) {
+    return lines.join('\n');
+  }
+
+  return lines.map((line) => `- ${line}`).join('\n');
+}
+
+function extractMarkdownSection(analysis: string, headings: string[]): string | null {
+  if (!analysis.trim()) return null;
+
+  const escapedHeadings = headings.map(escapeRegex).join('|');
+  const headingRegex = new RegExp(`^#{1,6}\\s*(?:${escapedHeadings})\\s*$`, 'im');
+  const headingMatch = analysis.match(headingRegex);
+  if (!headingMatch || headingMatch.index == null) {
+    return null;
+  }
+
+  const sectionStart = headingMatch.index + headingMatch[0].length;
+  const remaining = analysis.slice(sectionStart);
+  const nextHeadingMatch = remaining.match(/^#{1,6}\s+/m);
+  const rawSection = nextHeadingMatch
+    ? remaining.slice(0, nextHeadingMatch.index)
+    : remaining;
+
+  const section = rawSection.trim();
+  return section || null;
+}
+
+function buildDefaultReviewerTestPlan(report: CrashReportData): string {
+  const crashLabel = report.managed_exception?.type || report.native_crash?.signal_name || 'the reported crash';
+  const platform = report.platform || 'the target platform';
+
+  return [
+    '- Reproduce the original user flow that previously triggered this crash.',
+    `- Verify the flow now completes without ${crashLabel} on ${platform}.`,
+    '- Run a quick regression check on adjacent flows touched by this fix.',
+    '- Confirm logs/console show no new errors after the change.',
+  ].join('\n');
+}
+
+function buildDefaultSolution(report: CrashReportData, filesChangedCount: number): string {
+  const crashLabel = report.managed_exception?.type || report.native_crash?.signal_name || 'reported crash';
+  return [
+    `Applied a targeted, minimal fix focused on preventing ${crashLabel} without changing unrelated behavior.`,
+    `The implementation updates ${filesChangedCount} file(s), prioritizing safe guards and stable fallback behavior where the crash condition is triggered.`,
+  ].join('\n');
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
 }

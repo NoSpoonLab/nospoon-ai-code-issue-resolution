@@ -36081,6 +36081,7 @@ function buildPrompt(report, additionalPrompt, relatedReports = []) {
     sections.push('5. Only modify files that are necessary for the fix.');
     sections.push('6. Follow existing code style and conventions.');
     sections.push('7. Do not run git commit/push commands and do not create pull requests; this workflow handles git and PR operations automatically.');
+    sections.push('8. In your final analysis, include clear sections: Root Cause, Solution, Changes Made, and Test Plan.');
     if (additionalPrompt && additionalPrompt.trim()) {
         sections.push('\n## Additional Instructions\n');
         sections.push(additionalPrompt.trim());
@@ -36587,17 +36588,29 @@ exports.PR_BODY_TEMPLATE = [
     '**Application:** {{name}} v{{version}}',
     '**Platform:** {{platform}}',
     '',
-    '### Crash Summary',
+    '### Root Cause',
     '',
-    '{{crash_summary}}',
+    '{{root_cause}}',
     '',
-    '### Analysis',
+    '### Solution',
     '',
-    '{{analysis}}',
+    '{{solution}}',
+    '',
+    '### Changes Made',
+    '',
+    '{{changes_made}}',
     '',
     '### Files Modified',
     '',
     '{{files}}',
+    '',
+    '### Test Plan (Reviewer, if needed)',
+    '',
+    '{{test_plan}}',
+    '',
+    '### Claude Analysis',
+    '',
+    '{{analysis}}',
     '',
     '---',
     '',
@@ -36863,30 +36876,113 @@ function buildPRTitle(report) {
 }
 function buildPRBody(options) {
     const report = options.crashReport;
-    const filesFormatted = options.filesChanged.map((f) => `- \`${f}\``).join('\n');
-    let crashSummary = '';
-    if (report.managed_exception) {
-        crashSummary = `**${report.managed_exception.type}:** ${report.managed_exception.message}`;
-    }
-    else if (report.native_crash?.signal_name) {
-        crashSummary = `**Native crash:** ${report.native_crash.signal_name}`;
-        if (report.native_crash.signal_code) {
-            crashSummary += ` (${report.native_crash.signal_code})`;
-        }
-    }
-    else {
-        crashSummary = 'Unknown crash type';
-    }
+    const crashSummary = getCrashSummary(report);
+    const filesFormatted = formatFilesList(options.filesChanged);
+    const rootCause = extractMarkdownSection(options.analysis, ['Root Cause', 'Crash Root Cause', 'Cause']) ||
+        crashSummary;
+    const extractedSolution = extractMarkdownSection(options.analysis, [
+        'Solution',
+        'Fix Strategy',
+        'Approach',
+        'Resolution',
+    ]);
+    const solution = extractedSolution ||
+        buildDefaultSolution(report, options.filesChanged.length);
+    const extractedChanges = extractMarkdownSection(options.analysis, [
+        'Changes Made',
+        'Fix Applied',
+        'What Changed',
+        'Implementation',
+    ]);
+    const changesMade = formatAsBulletList(extractedChanges) ||
+        [
+            '- Applied a targeted fix to prevent the crash condition described above.',
+            `- Updated ${options.filesChanged.length} file(s) listed in "Files Modified".`,
+        ].join('\n');
+    const extractedTestPlan = extractMarkdownSection(options.analysis, ['Test Plan', 'Testing']);
+    const testPlan = extractedTestPlan || buildDefaultReviewerTestPlan(report);
     return constants_1.PR_BODY_TEMPLATE
         .replace('{{report_id}}', report.report_id)
         .replace('{{crash_report_hash}}', report.crash_report_hash)
         .replace('{{name}}', report.name)
         .replace('{{version}}', report.version)
         .replace('{{platform}}', report.platform ?? 'Unknown')
-        .replace('{{crash_summary}}', crashSummary)
-        .replace('{{analysis}}', options.analysis)
+        .replace('{{root_cause}}', rootCause)
+        .replace('{{solution}}', solution)
+        .replace('{{changes_made}}', changesMade)
         .replace('{{files}}', filesFormatted)
+        .replace('{{test_plan}}', testPlan)
+        .replace('{{analysis}}', options.analysis)
         .replace('{{cost}}', options.costUsd.toFixed(4));
+}
+function getCrashSummary(report) {
+    if (report.managed_exception) {
+        return `**${report.managed_exception.type}:** ${report.managed_exception.message}`;
+    }
+    if (report.native_crash?.signal_name) {
+        const signalCode = report.native_crash.signal_code ? ` (${report.native_crash.signal_code})` : '';
+        return `**Native crash:** ${report.native_crash.signal_name}${signalCode}`;
+    }
+    return 'Unknown crash type';
+}
+function formatFilesList(filesChanged) {
+    if (filesChanged.length === 0) {
+        return '- No files were reported as changed.';
+    }
+    return filesChanged.map((file) => `- \`${file}\``).join('\n');
+}
+function formatAsBulletList(content) {
+    if (!content)
+        return null;
+    const lines = content
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+    if (lines.length === 0)
+        return null;
+    const bulletLike = /^(-|\*|\d+\.)\s+/;
+    if (lines.every((line) => bulletLike.test(line))) {
+        return lines.join('\n');
+    }
+    return lines.map((line) => `- ${line}`).join('\n');
+}
+function extractMarkdownSection(analysis, headings) {
+    if (!analysis.trim())
+        return null;
+    const escapedHeadings = headings.map(escapeRegex).join('|');
+    const headingRegex = new RegExp(`^#{1,6}\\s*(?:${escapedHeadings})\\s*$`, 'im');
+    const headingMatch = analysis.match(headingRegex);
+    if (!headingMatch || headingMatch.index == null) {
+        return null;
+    }
+    const sectionStart = headingMatch.index + headingMatch[0].length;
+    const remaining = analysis.slice(sectionStart);
+    const nextHeadingMatch = remaining.match(/^#{1,6}\s+/m);
+    const rawSection = nextHeadingMatch
+        ? remaining.slice(0, nextHeadingMatch.index)
+        : remaining;
+    const section = rawSection.trim();
+    return section || null;
+}
+function buildDefaultReviewerTestPlan(report) {
+    const crashLabel = report.managed_exception?.type || report.native_crash?.signal_name || 'the reported crash';
+    const platform = report.platform || 'the target platform';
+    return [
+        '- Reproduce the original user flow that previously triggered this crash.',
+        `- Verify the flow now completes without ${crashLabel} on ${platform}.`,
+        '- Run a quick regression check on adjacent flows touched by this fix.',
+        '- Confirm logs/console show no new errors after the change.',
+    ].join('\n');
+}
+function buildDefaultSolution(report, filesChangedCount) {
+    const crashLabel = report.managed_exception?.type || report.native_crash?.signal_name || 'reported crash';
+    return [
+        `Applied a targeted, minimal fix focused on preventing ${crashLabel} without changing unrelated behavior.`,
+        `The implementation updates ${filesChangedCount} file(s), prioritizing safe guards and stable fallback behavior where the crash condition is triggered.`,
+    ].join('\n');
+}
+function escapeRegex(value) {
+    return value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
 }
 
 

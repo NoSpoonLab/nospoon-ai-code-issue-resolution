@@ -90,15 +90,16 @@ describe('createPullRequest', () => {
     expect(body).toContain('Android');
   });
 
-  it('should include crash summary with managed exception', async () => {
+  it('should include root cause with managed exception', async () => {
     await createPullRequest(defaultOptions);
 
     const body = mockCreate.mock.calls[0][0].body as string;
+    expect(body).toContain('### Root Cause');
     expect(body).toContain('NullReferenceException');
     expect(body).toContain('Object reference not set');
   });
 
-  it('should include crash summary with native crash', async () => {
+  it('should include root cause with native crash', async () => {
     const opts: CreatePROptions = {
       ...defaultOptions,
       crashReport: {
@@ -127,6 +128,72 @@ describe('createPullRequest', () => {
     const body = mockCreate.mock.calls[0][0].body as string;
     expect(body).toContain('$0.0540 USD');
     expect(body).toContain('`Assets/Scripts/PlayerManager.cs`');
+  });
+
+  it('should always include Root Cause, Solution, Changes Made, Files Modified and Test Plan sections', async () => {
+    await createPullRequest(defaultOptions);
+
+    const body = mockCreate.mock.calls[0][0].body as string;
+    expect(body).toContain('### Root Cause');
+    expect(body).toContain('### Solution');
+    expect(body).toContain('### Changes Made');
+    expect(body).toContain('### Files Modified');
+    expect(body).toContain('### Test Plan (Reviewer, if needed)');
+  });
+
+  it('should include default Test Plan when analysis does not provide one', async () => {
+    await createPullRequest(defaultOptions);
+
+    const body = mockCreate.mock.calls[0][0].body as string;
+    expect(body).toContain('### Solution');
+    expect(body).toContain('Applied a targeted, minimal fix focused on preventing');
+    expect(body).toContain('### Test Plan (Reviewer, if needed)');
+    expect(body).toContain('Reproduce the original user flow');
+  });
+
+  it('should use extracted analysis sections when present', async () => {
+    const opts: CreatePROptions = {
+      ...defaultOptions,
+      analysis: [
+        '## Root Cause',
+        'Currency symbol lookup used First() on an empty sequence.',
+        '',
+        '## Solution',
+        'Use FirstOrDefault() and fallback to the billing-provided symbol.',
+        '',
+        '## Changes Made',
+        '- Replaced First() with FirstOrDefault().',
+        '- Added fallback symbol.',
+        '',
+        '## Test Plan',
+        '- Open paywall with locale lacking currency mapping.',
+      ].join('\n'),
+    };
+
+    await createPullRequest(opts);
+
+    const body = mockCreate.mock.calls[0][0].body as string;
+    expect(body).toContain('Currency symbol lookup used First() on an empty sequence.');
+    expect(body).toContain('Use FirstOrDefault() and fallback to the billing-provided symbol.');
+    expect(body).toContain('- Replaced First() with FirstOrDefault().');
+    expect(body).toContain('- Open paywall with locale lacking currency mapping.');
+    expect(body).toContain('### Test Plan (Reviewer, if needed)');
+  });
+
+  it('should include default Test Plan section for higher-risk changes', async () => {
+    const opts: CreatePROptions = {
+      ...defaultOptions,
+      filesChanged: [
+        'Assets/Scripts/HUD/ParentalArea/PaymentHUD.cs',
+        'Assets/Scripts/HUD/Onboarding/PaymentHUD.cs',
+      ],
+    };
+
+    await createPullRequest(opts);
+
+    const body = mockCreate.mock.calls[0][0].body as string;
+    expect(body).toContain('### Test Plan (Reviewer, if needed)');
+    expect(body).toContain('Reproduce the original user flow');
   });
 
   it('should handle label addition failure gracefully', async () => {
