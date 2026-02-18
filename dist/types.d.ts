@@ -116,6 +116,7 @@ export interface CrashReportData {
 }
 export interface ActionInputs {
     crashReport: CrashReportData;
+    crashReports: CrashReportData[];
     anthropicApiKey: string;
     githubToken: string;
     baseBranch: string;

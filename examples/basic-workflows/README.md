@@ -18,6 +18,6 @@ This folder contains the simplest workflow example for a first test.
 
 ## Inputs used in this basic example
 
-- `crash_report` (JSON serialized as string)
+- `crash_report` (JSON serialized as string: single object or array)
 - `base_branch` (recommended: `main`)
 - `dry_run` (`true` or `false`)

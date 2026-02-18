@@ -2,7 +2,7 @@ import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { ActionInputs } from './types';
 import { DEFAULTS } from './constants';
-import { parseAndValidateCrashReport } from './input/validator';
+import { parseAndValidateCrashReports } from './input/validator';
 import { ensureClaudeCli } from './claude/installer';
 import { buildPrompt } from './claude/prompt-builder';
 import { runClaude } from './claude/runner';
@@ -52,7 +52,8 @@ export function getInputs(): ActionInputs {
   process.env.CLAUDE_EFFORT = claudeEffort;
   process.env.CLAUDE_BETAS = claudeBetas;
 
-  const crashReport = parseAndValidateCrashReport(crashReportRaw);
+  const crashReports = parseAndValidateCrashReports(crashReportRaw);
+  const crashReport = crashReports[0];
 
   const maxTurns = parseInt(maxTurnsRaw, 10);
   if (isNaN(maxTurns) || maxTurns < 1) {
@@ -63,6 +64,7 @@ export function getInputs(): ActionInputs {
 
   return {
     crashReport,
+    crashReports,
     anthropicApiKey,
     githubToken,
     baseBranch,
@@ -85,7 +87,11 @@ export async function run(): Promise<void> {
   logger.info('Parsing and validating inputs...');
   const inputs = getInputs();
   const report = inputs.crashReport;
+  const relatedReports = inputs.crashReports.slice(1);
   logger.info(`Crash report: ${report.name} v${report.version} (${report.report_id})`);
+  if (relatedReports.length > 0) {
+    logger.info(`Additional crash reports received: ${relatedReports.length}`);
+  }
 
   if (inputs.useRouter) {
     const rules = parseRouterRules(inputs.routerRulesJson);
@@ -128,7 +134,7 @@ export async function run(): Promise<void> {
   const branchStartHead = await getCurrentHead();
 
   // 4. Build prompt
-  const prompt = buildPrompt(report, inputs.additionalPrompt);
+  const prompt = buildPrompt(report, inputs.additionalPrompt, relatedReports);
   logger.debug(`Prompt length: ${prompt.length} characters`);
 
   // 5. Execute Claude CLI

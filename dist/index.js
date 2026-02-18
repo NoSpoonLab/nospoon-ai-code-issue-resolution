@@ -35991,6 +35991,7 @@ exports.formatNativeCrash = formatNativeCrash;
 exports.formatManagedException = formatManagedException;
 exports.formatLogMessages = formatLogMessages;
 exports.formatUserMetadata = formatUserMetadata;
+exports.formatRelatedCrashReports = formatRelatedCrashReports;
 const LOG_TYPE_MAP = {
     0: 'Error',
     1: 'Assert',
@@ -35999,7 +36000,7 @@ const LOG_TYPE_MAP = {
     4: 'Exception',
     5: 'Debug',
 };
-function buildPrompt(report, additionalPrompt) {
+function buildPrompt(report, additionalPrompt, relatedReports = []) {
     const sections = [];
     sections.push('You are an expert Unity/C# developer analyzing a crash report from Unity Cloud Diagnostics / Backtrace.');
     sections.push('Your goal is to identify the root cause of the crash, find the relevant source files, and apply a proper, targeted fix. Do not refactor surrounding code or make changes unrelated to the crash.');
@@ -36067,6 +36068,9 @@ function buildPrompt(report, additionalPrompt) {
     // User Metadata
     if (report.user_metadata && report.user_metadata.length > 0) {
         sections.push(formatUserMetadata(report.user_metadata));
+    }
+    if (relatedReports.length > 0) {
+        sections.push(formatRelatedCrashReports(relatedReports));
     }
     // Instructions
     sections.push('## Instructions\n');
@@ -36198,6 +36202,59 @@ function formatUserMetadata(metadata) {
     lines.push('|-----|-------|');
     for (const entry of metadata) {
         lines.push(`| ${entry.key} | ${entry.value} |`);
+    }
+    lines.push('');
+    return lines.join('\n');
+}
+function formatRelatedCrashReports(reports) {
+    const lines = [];
+    lines.push(`## Related Crash Reports (${reports.length})\n`);
+    for (const [index, report] of reports.entries()) {
+        lines.push(`### Related Report #${index + 1}`);
+        lines.push(`- **Report ID:** \`${report.report_id}\``);
+        lines.push(`- **Hash:** \`${report.crash_report_hash}\``);
+        lines.push(`- **Timestamp:** ${formatTimestamp(report.ts)}`);
+        lines.push(`- **Version:** ${report.version}`);
+        if (report.platform)
+            lines.push(`- **Platform:** ${report.platform}`);
+        if (report.device_model)
+            lines.push(`- **Device:** ${report.device_model}`);
+        if (report.os)
+            lines.push(`- **OS:** ${report.os}`);
+        if (report.managed_exception) {
+            lines.push(`- **Managed Exception:** \`${report.managed_exception.type}\` - ${report.managed_exception.message}`);
+        }
+        else if (report.native_crash?.signal_name) {
+            lines.push(`- **Native Signal:** ${report.native_crash.signal_name}`);
+        }
+        else {
+            lines.push('- **Crash Type:** Unknown');
+        }
+        lines.push('');
+    }
+    const managedByType = new Map();
+    let nativeCount = 0;
+    reports.forEach((report) => {
+        if (report.managed_exception) {
+            const key = report.managed_exception.type;
+            managedByType.set(key, (managedByType.get(key) ?? 0) + 1);
+            return;
+        }
+        if (report.native_crash) {
+            nativeCount += 1;
+        }
+    });
+    lines.push('### Cross-Report Patterns\n');
+    if (managedByType.size === 0 && nativeCount === 0) {
+        lines.push('- No explicit managed/native crash signatures found in related reports.');
+    }
+    else {
+        managedByType.forEach((count, type) => {
+            lines.push(`- Managed \`${type}\`: ${count}`);
+        });
+        if (nativeCount > 0) {
+            lines.push(`- Native crash reports: ${nativeCount}`);
+        }
     }
     lines.push('');
     return lines.join('\n');
@@ -36999,12 +37056,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseAndValidateCrashReports = parseAndValidateCrashReports;
 exports.parseAndValidateCrashReport = parseAndValidateCrashReport;
 const ajv_1 = __importDefault(__nccwpck_require__(2463));
 const schema_1 = __nccwpck_require__(5933);
 const ajv = new ajv_1.default({ allErrors: true });
 const validate = ajv.compile(schema_1.crashReportSchema);
-function parseAndValidateCrashReport(jsonString) {
+function parseJson(jsonString) {
     let parsed;
     try {
         parsed = JSON.parse(jsonString);
@@ -37013,13 +37071,26 @@ function parseAndValidateCrashReport(jsonString) {
         const message = e instanceof Error ? e.message : String(e);
         throw new Error(`Invalid JSON: ${message}`);
     }
-    if (!validate(parsed)) {
-        const errors = validate.errors
-            ?.map((err) => `${err.instancePath || '/'} ${err.message}`)
-            .join('; ');
-        throw new Error(`Crash report validation failed: ${errors}`);
-    }
     return parsed;
+}
+function parseAndValidateCrashReports(jsonString) {
+    const parsed = parseJson(jsonString);
+    const reports = Array.isArray(parsed) ? parsed : [parsed];
+    if (reports.length === 0) {
+        throw new Error('Crash report validation failed: expected at least 1 crash report');
+    }
+    reports.forEach((report, index) => {
+        if (!validate(report)) {
+            const errors = validate.errors
+                ?.map((err) => `${err.instancePath || '/'} ${err.message}`)
+                .join('; ');
+            throw new Error(`Crash report validation failed at index ${index}: ${errors}`);
+        }
+    });
+    return reports;
+}
+function parseAndValidateCrashReport(jsonString) {
+    return parseAndValidateCrashReports(jsonString)[0];
 }
 
 
@@ -37106,7 +37177,8 @@ function getInputs() {
     process.env.CLAUDE_MODEL = claudeModel;
     process.env.CLAUDE_EFFORT = claudeEffort;
     process.env.CLAUDE_BETAS = claudeBetas;
-    const crashReport = (0, validator_1.parseAndValidateCrashReport)(crashReportRaw);
+    const crashReports = (0, validator_1.parseAndValidateCrashReports)(crashReportRaw);
+    const crashReport = crashReports[0];
     const maxTurns = parseInt(maxTurnsRaw, 10);
     if (isNaN(maxTurns) || maxTurns < 1) {
         throw new error_handler_1.ActionError('max_turns must be a positive integer', 'input-validation');
@@ -37115,6 +37187,7 @@ function getInputs() {
     const useRouter = readBoolean(useRouterRaw);
     return {
         crashReport,
+        crashReports,
         anthropicApiKey,
         githubToken,
         baseBranch,
@@ -37136,7 +37209,11 @@ async function run() {
     logger_1.logger.info('Parsing and validating inputs...');
     const inputs = getInputs();
     const report = inputs.crashReport;
+    const relatedReports = inputs.crashReports.slice(1);
     logger_1.logger.info(`Crash report: ${report.name} v${report.version} (${report.report_id})`);
+    if (relatedReports.length > 0) {
+        logger_1.logger.info(`Additional crash reports received: ${relatedReports.length}`);
+    }
     if (inputs.useRouter) {
         const rules = (0, router_1.parseRouterRules)(inputs.routerRulesJson);
         const defaultTarget = (0, router_1.parseRouterDefaultTarget)(inputs.routerDefaultTargetJson);
@@ -37171,7 +37248,7 @@ async function run() {
     });
     const branchStartHead = await (0, operations_1.getCurrentHead)();
     // 4. Build prompt
-    const prompt = (0, prompt_builder_1.buildPrompt)(report, inputs.additionalPrompt);
+    const prompt = (0, prompt_builder_1.buildPrompt)(report, inputs.additionalPrompt, relatedReports);
     logger_1.logger.debug(`Prompt length: ${prompt.length} characters`);
     // 5. Execute Claude CLI
     const autoApplyPlan = readBooleanEnv('CLAUDE_AUTO_APPLY_PLAN', true);

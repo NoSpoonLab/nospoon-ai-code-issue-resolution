@@ -5,7 +5,7 @@ import { CrashReportData } from '../types';
 const ajv = new Ajv({ allErrors: true });
 const validate = ajv.compile<CrashReportData>(crashReportSchema);
 
-export function parseAndValidateCrashReport(jsonString: string): CrashReportData {
+function parseJson(jsonString: string): unknown {
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonString);
@@ -13,13 +13,29 @@ export function parseAndValidateCrashReport(jsonString: string): CrashReportData
     const message = e instanceof Error ? e.message : String(e);
     throw new Error(`Invalid JSON: ${message}`);
   }
+  return parsed;
+}
 
-  if (!validate(parsed)) {
-    const errors = validate.errors
-      ?.map((err) => `${err.instancePath || '/'} ${err.message}`)
-      .join('; ');
-    throw new Error(`Crash report validation failed: ${errors}`);
+export function parseAndValidateCrashReports(jsonString: string): CrashReportData[] {
+  const parsed = parseJson(jsonString);
+  const reports = Array.isArray(parsed) ? parsed : [parsed];
+
+  if (reports.length === 0) {
+    throw new Error('Crash report validation failed: expected at least 1 crash report');
   }
 
-  return parsed;
+  reports.forEach((report, index) => {
+    if (!validate(report)) {
+      const errors = validate.errors
+        ?.map((err) => `${err.instancePath || '/'} ${err.message}`)
+        .join('; ');
+      throw new Error(`Crash report validation failed at index ${index}: ${errors}`);
+    }
+  });
+
+  return reports;
+}
+
+export function parseAndValidateCrashReport(jsonString: string): CrashReportData {
+  return parseAndValidateCrashReports(jsonString)[0];
 }

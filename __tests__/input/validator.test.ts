@@ -1,4 +1,4 @@
-import { parseAndValidateCrashReport } from '../../src/input/validator';
+import { parseAndValidateCrashReport, parseAndValidateCrashReports } from '../../src/input/validator';
 
 const validCrashReport = {
   report_id: 'rpt-abc123',
@@ -77,6 +77,22 @@ describe('parseAndValidateCrashReport', () => {
   it('should parse and return valid crash report with all fields', () => {
     const result = parseAndValidateCrashReport(JSON.stringify(validCrashReport));
     expect(result).toEqual(validCrashReport);
+  });
+
+  it('should parse a JSON array of crash reports', () => {
+    const secondReport = {
+      ...validCrashReport,
+      report_id: 'rpt-abc124',
+      crash_report_hash: 'b1b2c3d4e5f6a7b8',
+    };
+    const result = parseAndValidateCrashReports(JSON.stringify([validCrashReport, secondReport]));
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual(validCrashReport);
+    expect(result[1]).toEqual(secondReport);
+  });
+
+  it('should throw when crash report array is empty', () => {
+    expect(() => parseAndValidateCrashReports('[]')).toThrow('expected at least 1 crash report');
   });
 
   it('should accept minimal valid crash report', () => {

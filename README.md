@@ -15,7 +15,7 @@ GitHub Action to analyze Unity/Backtrace crash reports, apply a fix with Claude 
 
 ## Flow
 
-1. Parse and validate `crash_report`.
+1. Parse and validate `crash_report` (single object or array of objects).
 2. If `use_router=true`, try routing using rules.
 3. If no route matches, run Claude in the local repository.
 4. Detect changes, commit/push, and create a PR.
@@ -31,7 +31,7 @@ on:
   workflow_dispatch:
     inputs:
       crash_report:
-        description: "Crash report JSON (string)"
+        description: "Crash report JSON (string, object or array of objects)"
         required: true
         type: string
       base_branch:
@@ -110,7 +110,7 @@ Important notes:
 
 | Input | Required | Default | Usage |
 |---|---|---|---|
-| `crash_report` | yes | - | Crash report JSON serialized as string |
+| `crash_report` | yes | - | Crash report JSON serialized as string (single object or array) |
 | `anthropic_api_key` | yes | - | Claude API key |
 | `github_token` | no | `github.token` | Token used for push/PR/dispatch (PAT recommended for advanced use) |
 | `base_branch` | no | auto-detect | PR base branch |

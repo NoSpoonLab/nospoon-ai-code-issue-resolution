@@ -8,6 +8,7 @@ import {
   formatManagedException,
   formatLogMessages,
   formatUserMetadata,
+  formatRelatedCrashReports,
 } from '../../src/claude/prompt-builder';
 import { CrashReportData } from '../../src/types';
 
@@ -200,6 +201,42 @@ describe('buildPrompt', () => {
     const prompt = buildPrompt(report);
     expect(prompt).not.toContain('## Device Info');
   });
+
+  it('should include related crash reports context when provided', () => {
+    const related: CrashReportData[] = [
+      {
+        report_id: 'rpt-002',
+        crash_report_hash: 'bbbb1111cccc2222',
+        ts: 1700001000,
+        name: 'MyGame',
+        version: '1.2.3',
+        managed_exception: {
+          type: 'NullReferenceException',
+          message: 'Object reference not set',
+          stack_trace: 'at Foo.Bar()',
+        },
+      },
+      {
+        report_id: 'rpt-003',
+        crash_report_hash: 'cccc1111dddd2222',
+        ts: 1700002000,
+        name: 'MyGame',
+        version: '1.2.3',
+        native_crash: {
+          signal_name: 'SIGSEGV',
+          threads: [],
+        },
+      },
+    ];
+
+    const prompt = buildPrompt(fullReport, undefined, related);
+    expect(prompt).toContain('## Related Crash Reports (2)');
+    expect(prompt).toContain('### Related Report #1');
+    expect(prompt).toContain('rpt-002');
+    expect(prompt).toContain('### Cross-Report Patterns');
+    expect(prompt).toContain('Managed `NullReferenceException`: 1');
+    expect(prompt).toContain('Native crash reports: 1');
+  });
 });
 
 describe('formatTimestamp', () => {
@@ -342,5 +379,20 @@ describe('formatUserMetadata', () => {
     ]);
     expect(result).toContain('| Key | Value |');
     expect(result).toContain('| env | production |');
+  });
+});
+
+describe('formatRelatedCrashReports', () => {
+  it('should include unknown crash type when report has no managed or native crash', () => {
+    const result = formatRelatedCrashReports([
+      {
+        report_id: 'rpt-unknown',
+        crash_report_hash: 'abc123',
+        ts: 1700000000,
+        name: 'MyGame',
+        version: '1.0.0',
+      },
+    ]);
+    expect(result).toContain('**Crash Type:** Unknown');
   });
 });

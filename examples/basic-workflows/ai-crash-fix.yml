@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       crash_report:
-        description: JSON string with Unity/Backtrace crash report
+        description: JSON string with Unity/Backtrace crash report (single object or array)
         required: true
         type: string
       base_branch:

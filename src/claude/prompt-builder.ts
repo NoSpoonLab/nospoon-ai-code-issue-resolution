@@ -9,7 +9,11 @@ const LOG_TYPE_MAP: Record<number, string> = {
   5: 'Debug',
 };
 
-export function buildPrompt(report: CrashReportData, additionalPrompt?: string): string {
+export function buildPrompt(
+  report: CrashReportData,
+  additionalPrompt?: string,
+  relatedReports: CrashReportData[] = []
+): string {
   const sections: string[] = [];
 
   sections.push('You are an expert Unity/C# developer analyzing a crash report from Unity Cloud Diagnostics / Backtrace.');
@@ -71,6 +75,10 @@ export function buildPrompt(report: CrashReportData, additionalPrompt?: string):
   // User Metadata
   if (report.user_metadata && report.user_metadata.length > 0) {
     sections.push(formatUserMetadata(report.user_metadata));
+  }
+
+  if (relatedReports.length > 0) {
+    sections.push(formatRelatedCrashReports(relatedReports));
   }
 
   // Instructions
@@ -214,5 +222,58 @@ export function formatUserMetadata(metadata: UserMetadata[]): string {
     lines.push(`| ${entry.key} | ${entry.value} |`);
   }
   lines.push('');
+  return lines.join('\n');
+}
+
+export function formatRelatedCrashReports(reports: CrashReportData[]): string {
+  const lines: string[] = [];
+  lines.push(`## Related Crash Reports (${reports.length})\n`);
+
+  for (const [index, report] of reports.entries()) {
+    lines.push(`### Related Report #${index + 1}`);
+    lines.push(`- **Report ID:** \`${report.report_id}\``);
+    lines.push(`- **Hash:** \`${report.crash_report_hash}\``);
+    lines.push(`- **Timestamp:** ${formatTimestamp(report.ts)}`);
+    lines.push(`- **Version:** ${report.version}`);
+    if (report.platform) lines.push(`- **Platform:** ${report.platform}`);
+    if (report.device_model) lines.push(`- **Device:** ${report.device_model}`);
+    if (report.os) lines.push(`- **OS:** ${report.os}`);
+    if (report.managed_exception) {
+      lines.push(`- **Managed Exception:** \`${report.managed_exception.type}\` - ${report.managed_exception.message}`);
+    } else if (report.native_crash?.signal_name) {
+      lines.push(`- **Native Signal:** ${report.native_crash.signal_name}`);
+    } else {
+      lines.push('- **Crash Type:** Unknown');
+    }
+    lines.push('');
+  }
+
+  const managedByType = new Map<string, number>();
+  let nativeCount = 0;
+
+  reports.forEach((report) => {
+    if (report.managed_exception) {
+      const key = report.managed_exception.type;
+      managedByType.set(key, (managedByType.get(key) ?? 0) + 1);
+      return;
+    }
+    if (report.native_crash) {
+      nativeCount += 1;
+    }
+  });
+
+  lines.push('### Cross-Report Patterns\n');
+  if (managedByType.size === 0 && nativeCount === 0) {
+    lines.push('- No explicit managed/native crash signatures found in related reports.');
+  } else {
+    managedByType.forEach((count, type) => {
+      lines.push(`- Managed \`${type}\`: ${count}`);
+    });
+    if (nativeCount > 0) {
+      lines.push(`- Native crash reports: ${nativeCount}`);
+    }
+  }
+  lines.push('');
+
   return lines.join('\n');
 }

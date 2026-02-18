@@ -131,6 +131,42 @@ describe('main', () => {
     expect(mockSetOutput).toHaveBeenCalledWith('files_changed', 'Assets/Scripts/PlayerManager.cs');
   });
 
+  it('should accept crash_report as an array and use first report as primary', async () => {
+    const crashReports = JSON.stringify([
+      {
+        report_id: 'rpt-primary',
+        crash_report_hash: '1111222233334444',
+        ts: 1700000000,
+        name: 'MyGame',
+        version: '1.2.3',
+        managed_exception: {
+          type: 'NullReferenceException',
+          message: 'Object reference not set',
+          stack_trace: 'at Primary.Crash()',
+        },
+      },
+      {
+        report_id: 'rpt-related',
+        crash_report_hash: '5555666677778888',
+        ts: 1700000100,
+        name: 'MyGame',
+        version: '1.2.3',
+        managed_exception: {
+          type: 'NullReferenceException',
+          message: 'Object reference not set',
+          stack_trace: 'at Related.Crash()',
+        },
+      },
+    ]);
+
+    setupInputs({ crash_report: crashReports });
+    setupExecForFullRun();
+
+    await run();
+
+    expect(mockSetOutput).toHaveBeenCalledWith('branch_name', expect.stringContaining('1111222233334444'));
+  });
+
   it('should skip PR creation in dry_run mode', async () => {
     setupInputs({ dry_run: 'true' });
     setupExecForFullRun();
