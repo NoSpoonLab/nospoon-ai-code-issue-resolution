@@ -21,16 +21,31 @@ export async function createPullRequest(options: CreatePROptions): Promise<PullR
   const title = buildPRTitle(options.crashReport);
   const body = buildPRBody(options);
 
-  logger.info(`Creating PR: "${title}" (${options.branchName} → ${options.baseBranch})`);
+  logger.info(`Creating PR: "${title}" (${options.branchName} -> ${options.baseBranch})`);
 
-  const { data: pr } = await octokit.rest.pulls.create({
-    owner,
-    repo,
-    title,
-    body,
-    head: options.branchName,
-    base: options.baseBranch,
-  });
+  let pr: { html_url: string; number: number };
+  try {
+    const { data } = await octokit.rest.pulls.create({
+      owner,
+      repo,
+      title,
+      body,
+      head: options.branchName,
+      base: options.baseBranch,
+    });
+    pr = data;
+  } catch (error) {
+    if (!isPullRequestAlreadyExistsError(error)) {
+      throw error;
+    }
+
+    logger.warning('Pull request already exists for this branch. Reusing existing PR.');
+    const existingPr = await findExistingPullRequest(octokit, owner, repo, options.branchName);
+    if (!existingPr) {
+      throw error;
+    }
+    pr = existingPr;
+  }
 
   if (options.labels.length > 0) {
     try {
@@ -51,6 +66,35 @@ export async function createPullRequest(options: CreatePROptions): Promise<PullR
     url: pr.html_url,
     number: pr.number,
     branch: options.branchName,
+  };
+}
+
+function isPullRequestAlreadyExistsError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('A pull request already exists');
+}
+
+async function findExistingPullRequest(
+  octokit: ReturnType<typeof github.getOctokit>,
+  owner: string,
+  repo: string,
+  branchName: string
+): Promise<{ html_url: string; number: number } | null> {
+  const { data } = await octokit.rest.pulls.list({
+    owner,
+    repo,
+    state: 'open',
+    head: `${owner}:${branchName}`,
+    per_page: 1,
+  });
+
+  if (data.length === 0) {
+    return null;
+  }
+
+  return {
+    html_url: data[0].html_url,
+    number: data[0].number,
   };
 }
 

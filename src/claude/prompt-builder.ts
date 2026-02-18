@@ -89,6 +89,7 @@ export function buildPrompt(
   sections.push('4. Apply a minimal, targeted fix that prevents the crash without introducing regressions.');
   sections.push('5. Only modify files that are necessary for the fix.');
   sections.push('6. Follow existing code style and conventions.');
+  sections.push('7. Do not run git commit/push commands and do not create pull requests; this workflow handles git and PR operations automatically.');
 
   if (additionalPrompt && additionalPrompt.trim()) {
     sections.push('\n## Additional Instructions\n');

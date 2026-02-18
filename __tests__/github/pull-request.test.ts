@@ -6,6 +6,7 @@ jest.mock('@actions/core');
 
 const mockCreate = jest.fn();
 const mockAddLabels = jest.fn();
+const mockList = jest.fn();
 
 const mockGetOctokit = github.getOctokit as jest.MockedFunction<typeof github.getOctokit>;
 
@@ -17,7 +18,7 @@ beforeEach(() => {
 
   mockGetOctokit.mockReturnValue({
     rest: {
-      pulls: { create: mockCreate },
+      pulls: { create: mockCreate, list: mockList },
       issues: { addLabels: mockAddLabels },
     },
   } as unknown as ReturnType<typeof github.getOctokit>);
@@ -133,5 +134,29 @@ describe('createPullRequest', () => {
 
     const result = await createPullRequest(defaultOptions);
     expect(result.number).toBe(42);
+  });
+
+  it('should reuse existing PR when GitHub says one already exists for branch', async () => {
+    mockCreate.mockRejectedValue(
+      new Error(
+        'Validation Failed: {"resource":"PullRequest","code":"custom","message":"A pull request already exists for owner:branch."}'
+      )
+    );
+    mockList.mockResolvedValue({
+      data: [{ html_url: 'https://github.com/owner/repo/pull/99', number: 99 }],
+    });
+
+    const result = await createPullRequest(defaultOptions);
+
+    expect(mockList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'test-owner',
+        repo: 'test-repo',
+        state: 'open',
+        head: 'test-owner:fix/crash-a1b2c3d4-123',
+      })
+    );
+    expect(result.url).toBe('https://github.com/owner/repo/pull/99');
+    expect(result.number).toBe(99);
   });
 });

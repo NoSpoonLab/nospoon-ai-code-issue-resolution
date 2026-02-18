@@ -36080,6 +36080,7 @@ function buildPrompt(report, additionalPrompt, relatedReports = []) {
     sections.push('4. Apply a minimal, targeted fix that prevents the crash without introducing regressions.');
     sections.push('5. Only modify files that are necessary for the fix.');
     sections.push('6. Follow existing code style and conventions.');
+    sections.push('7. Do not run git commit/push commands and do not create pull requests; this workflow handles git and PR operations automatically.');
     if (additionalPrompt && additionalPrompt.trim()) {
         sections.push('\n## Additional Instructions\n');
         sections.push(additionalPrompt.trim());
@@ -36792,15 +36793,30 @@ async function createPullRequest(options) {
     const { owner, repo } = github.context.repo;
     const title = buildPRTitle(options.crashReport);
     const body = buildPRBody(options);
-    logger_1.logger.info(`Creating PR: "${title}" (${options.branchName} → ${options.baseBranch})`);
-    const { data: pr } = await octokit.rest.pulls.create({
-        owner,
-        repo,
-        title,
-        body,
-        head: options.branchName,
-        base: options.baseBranch,
-    });
+    logger_1.logger.info(`Creating PR: "${title}" (${options.branchName} -> ${options.baseBranch})`);
+    let pr;
+    try {
+        const { data } = await octokit.rest.pulls.create({
+            owner,
+            repo,
+            title,
+            body,
+            head: options.branchName,
+            base: options.baseBranch,
+        });
+        pr = data;
+    }
+    catch (error) {
+        if (!isPullRequestAlreadyExistsError(error)) {
+            throw error;
+        }
+        logger_1.logger.warning('Pull request already exists for this branch. Reusing existing PR.');
+        const existingPr = await findExistingPullRequest(octokit, owner, repo, options.branchName);
+        if (!existingPr) {
+            throw error;
+        }
+        pr = existingPr;
+    }
     if (options.labels.length > 0) {
         try {
             await octokit.rest.issues.addLabels({
@@ -36819,6 +36835,26 @@ async function createPullRequest(options) {
         url: pr.html_url,
         number: pr.number,
         branch: options.branchName,
+    };
+}
+function isPullRequestAlreadyExistsError(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('A pull request already exists');
+}
+async function findExistingPullRequest(octokit, owner, repo, branchName) {
+    const { data } = await octokit.rest.pulls.list({
+        owner,
+        repo,
+        state: 'open',
+        head: `${owner}:${branchName}`,
+        per_page: 1,
+    });
+    if (data.length === 0) {
+        return null;
+    }
+    return {
+        html_url: data[0].html_url,
+        number: data[0].number,
     };
 }
 function buildPRTitle(report) {
