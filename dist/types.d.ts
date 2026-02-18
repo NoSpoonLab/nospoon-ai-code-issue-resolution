@@ -23,8 +23,8 @@ export interface CrashThread {
 export interface NativeCrash {
     signal_name?: string;
     signal_code?: string;
-    signal_address?: string;
-    signal_pc?: string;
+    signal_address?: string | number;
+    signal_pc?: string | number;
     symbolicated?: boolean;
     threads: CrashThread[];
 }

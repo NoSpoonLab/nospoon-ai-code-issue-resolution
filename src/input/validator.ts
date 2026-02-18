@@ -2,7 +2,7 @@ import Ajv from 'ajv';
 import { crashReportSchema } from './schema';
 import { CrashReportData } from '../types';
 
-const ajv = new Ajv({ allErrors: true });
+const ajv = new Ajv({ allErrors: true, allowUnionTypes: true });
 const validate = ajv.compile<CrashReportData>(crashReportSchema);
 
 function parseJson(jsonString: string): unknown {

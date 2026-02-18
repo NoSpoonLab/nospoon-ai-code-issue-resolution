@@ -41,8 +41,8 @@ const nativeCrashSchema = {
   properties: {
     signal_name: { type: 'string' as const, nullable: true },
     signal_code: { type: 'string' as const, nullable: true },
-    signal_address: { type: 'string' as const, nullable: true },
-    signal_pc: { type: 'string' as const, nullable: true },
+    signal_address: { type: ['string', 'number'] as const, nullable: true },
+    signal_pc: { type: ['string', 'number'] as const, nullable: true },
     symbolicated: { type: 'boolean' as const, nullable: true },
     threads: {
       type: 'array' as const,

@@ -37034,8 +37034,8 @@ const nativeCrashSchema = {
     properties: {
         signal_name: { type: 'string', nullable: true },
         signal_code: { type: 'string', nullable: true },
-        signal_address: { type: 'string', nullable: true },
-        signal_pc: { type: 'string', nullable: true },
+        signal_address: { type: ['string', 'number'], nullable: true },
+        signal_pc: { type: ['string', 'number'], nullable: true },
         symbolicated: { type: 'boolean', nullable: true },
         threads: {
             type: 'array',
@@ -37192,7 +37192,7 @@ exports.parseAndValidateCrashReports = parseAndValidateCrashReports;
 exports.parseAndValidateCrashReport = parseAndValidateCrashReport;
 const ajv_1 = __importDefault(__nccwpck_require__(2463));
 const schema_1 = __nccwpck_require__(5933);
-const ajv = new ajv_1.default({ allErrors: true });
+const ajv = new ajv_1.default({ allErrors: true, allowUnionTypes: true });
 const validate = ajv.compile(schema_1.crashReportSchema);
 function parseJson(jsonString) {
     let parsed;

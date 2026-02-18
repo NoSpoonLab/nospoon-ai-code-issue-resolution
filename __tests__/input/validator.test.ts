@@ -189,6 +189,26 @@ describe('parseAndValidateCrashReport', () => {
     expect(result.native_crash?.signal_name).toBe('SIGSEGV');
   });
 
+  it('should accept numeric signal_address and signal_pc in native_crash', () => {
+    const data = {
+      report_id: 'rpt',
+      crash_report_hash: 'abc',
+      ts: 1,
+      name: 'G',
+      version: '1',
+      native_crash: {
+        signal_name: '11',
+        signal_code: '1',
+        signal_address: 16777200,
+        signal_pc: 2295270676,
+        threads: [{ number: 0, crashed: true, frames: [] }],
+      },
+    };
+    const result = parseAndValidateCrashReport(JSON.stringify(data));
+    expect(result.native_crash?.signal_address).toBe(16777200);
+    expect(result.native_crash?.signal_pc).toBe(2295270676);
+  });
+
   it('should accept valid managed_exception structure', () => {
     const data = {
       report_id: 'rpt',

@@ -271,11 +271,11 @@ export declare const crashReportSchema: {
                     nullable: boolean;
                 };
                 signal_address: {
-                    type: "string";
+                    type: readonly ["string", "number"];
                     nullable: boolean;
                 };
                 signal_pc: {
-                    type: "string";
+                    type: readonly ["string", "number"];
                     nullable: boolean;
                 };
                 symbolicated: {
