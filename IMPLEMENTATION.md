@@ -3,20 +3,75 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Project Architecture](#project-architecture)
-3. [Scaffold and Base Configuration](#scaffold-and-base-configuration)
-4. [Input Layer](#input-layer)
-5. [Claude Layer](#claude-layer)
-6. [Git Layer](#git-layer)
-7. [GitHub Layer](#github-layer)
-8. [Utilities](#utilities)
-9. [Main Orchestrator (main.ts)](#main-orchestrator-maints)
-10. [Testing](#testing)
-11. [Build and Distribution](#build-and-distribution)
-12. [CI/CD](#cicd)
-13. [Security](#security)
-14. [Technical Decisions and Trade-offs](#technical-decisions-and-trade-offs)
-15. [Usage](#usage)
+2. [Changelog](#changelog)
+3. [Project Architecture](#project-architecture)
+4. [Scaffold and Base Configuration](#scaffold-and-base-configuration)
+5. [Input Layer](#input-layer)
+6. [Claude Layer](#claude-layer)
+7. [Git Layer](#git-layer)
+8. [GitHub Layer](#github-layer)
+9. [Utilities](#utilities)
+10. [Main Orchestrator (main.ts)](#main-orchestrator-maints)
+11. [Testing](#testing)
+12. [Build and Distribution](#build-and-distribution)
+13. [CI/CD](#cicd)
+14. [Security](#security)
+15. [Technical Decisions and Trade-offs](#technical-decisions-and-trade-offs)
+16. [Usage](#usage)
+
+---
+
+## Changelog
+
+### 2026-02-20
+
+#### Fix: Remove duplicate Claude analysis section from PR body (`src/constants.ts`, `src/github/pull-request.ts`)
+
+The `PR_BODY_TEMPLATE` included a `### Claude Analysis` section that appended the full raw Claude output after the structured sections (Root Cause, Solution, Changes Made, Test Plan). Since those sections are extracted directly from the raw analysis, the content was duplicated verbatim.
+
+**Changes:**
+- `src/constants.ts` — Removed `### Claude Analysis` and `{{analysis}}` from `PR_BODY_TEMPLATE`.
+- `src/github/pull-request.ts` — Removed `.replace('{{analysis}}', options.analysis)` from `buildPRBody()`. The `analysis` field on `CreatePROptions` is retained as source for `extractMarkdownSection()`.
+
+---
+
+#### Feat: Support `crash_report_file` input for large payloads (`action.yml`, `src/main.ts`)
+
+GitHub Actions inputs are passed as environment variables and are limited to ~65KB. Large payloads (e.g. 100 crash reports with full stack traces) exceed this limit and cause the action to fail.
+
+**New input: `crash_report_file`** — Accepts a local path or a remote URL (`http`/`https`) to a JSON file containing crash report data. Takes priority over `crash_report` when both are provided.
+
+Resolution priority in `getInputs()`:
+1. `crash_report_file` is a URL → `fetch()` with HTTP status validation.
+2. `crash_report_file` is a local path → `fs.readFileSync()`.
+3. `crash_report_file` is empty, `crash_report` has a value → original inline behavior.
+4. Both empty → `ActionError: Either crash_report or crash_report_file must be provided`.
+
+**Changes:**
+- `action.yml` — Added `crash_report_file` input (optional). Changed `crash_report` to `required: false`.
+- `src/main.ts` — Imported `fs` and `path`. Made `getInputs()` async to support `await fetch()`. Added URL/path detection logic with descriptive errors. Updated `run()` to `await getInputs()`.
+
+---
+
+#### Feat: `fix_strategy` input to control Claude's fix scope (`action.yml`, `src/types.ts`, `src/main.ts`, `src/claude/prompt-builder.ts`)
+
+Previously the prompt always instructed Claude to apply the smallest possible fix. Now callers can choose the fix scope.
+
+**New input: `fix_strategy`** — Three values:
+
+| Value | Default | Behavior |
+|---|---|---|
+| `minimal` | ✓ | Smallest targeted change to stop the crash. No surrounding refactoring. |
+| `refactor` | | May reorganize the affected code if it improves correctness, safety, or maintainability. |
+| `aggressive` | | Full freedom to improve code quality, fix latent issues nearby, restructure patterns, extract helpers. |
+
+The strategy affects three parts of the prompt: the role intro sentence, instruction step 4 (how to fix), and instruction step 5 (which files to touch). Any value outside the three valid ones causes an immediate `ActionError` with a descriptive message.
+
+**Changes:**
+- `action.yml` — Added `fix_strategy` input with default `minimal`.
+- `src/types.ts` — Added `FixStrategy = 'minimal' | 'refactor' | 'aggressive'` type and `fixStrategy: FixStrategy` to `ActionInputs`.
+- `src/main.ts` — Added `parseFixStrategy()` helper. Reads `fix_strategy` input and passes it through `ActionInputs`. Passes `inputs.fixStrategy` to `buildPrompt()`.
+- `src/claude/prompt-builder.ts` — Added `fixStrategy: FixStrategy = 'minimal'` parameter to `buildPrompt()`. Strategy-specific strings for intro, step 4, and step 5 using ternary chains.
 
 ---
 

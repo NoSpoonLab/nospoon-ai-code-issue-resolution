@@ -1,4 +1,4 @@
-import { CrashReportData, CrashThread, NativeCrash, ManagedException, LogMessage, UserMetadata } from '../types';
+import { CrashReportData, CrashThread, FixStrategy, NativeCrash, ManagedException, LogMessage, UserMetadata } from '../types';
 
 const LOG_TYPE_MAP: Record<number, string> = {
   0: 'Error',
@@ -12,12 +12,19 @@ const LOG_TYPE_MAP: Record<number, string> = {
 export function buildPrompt(
   report: CrashReportData,
   additionalPrompt?: string,
-  relatedReports: CrashReportData[] = []
+  relatedReports: CrashReportData[] = [],
+  fixStrategy: FixStrategy = 'minimal'
 ): string {
   const sections: string[] = [];
 
+  const strategyIntro = fixStrategy === 'aggressive'
+    ? 'Your goal is to identify the root cause of the crash and deliver a comprehensive, high-quality fix. You have full freedom to improve the affected code, fix similar latent issues in nearby code, restructure patterns, and extract helpers where beneficial. Prioritize long-term correctness and code quality over minimal change.'
+    : fixStrategy === 'refactor'
+    ? 'Your goal is to identify the root cause of the crash, find the relevant source files, and apply a fix. You may refactor the affected code if it improves correctness, safety, or maintainability — keep changes focused on the affected area and avoid unrelated modifications.'
+    : 'Your goal is to identify the root cause of the crash, find the relevant source files, and apply a proper, targeted fix. Do not refactor surrounding code or make changes unrelated to the crash.';
+
   sections.push('You are an expert Unity/C# developer analyzing a crash report from Unity Cloud Diagnostics / Backtrace.');
-  sections.push('Your goal is to identify the root cause of the crash, find the relevant source files, and apply a proper, targeted fix. Do not refactor surrounding code or make changes unrelated to the crash.');
+  sections.push(strategyIntro);
   sections.push('You may consult the internet for API docs, library behavior, or platform specifics if it helps the fix.\n');
 
   // Crash Report Summary
@@ -83,11 +90,23 @@ export function buildPrompt(
 
   // Instructions
   sections.push('## Instructions\n');
+  const step4 = fixStrategy === 'aggressive'
+    ? '4. Apply a comprehensive fix. You have full freedom to improve the affected code, fix similar latent issues in nearby code, restructure patterns, and extract helpers where beneficial.'
+    : fixStrategy === 'refactor'
+    ? '4. Apply a fix that resolves the crash. You may refactor the affected code if it improves correctness, prevents similar issues, or increases robustness — but avoid changes unrelated to the crash area.'
+    : '4. Apply a minimal, targeted fix that prevents the crash without introducing regressions.';
+
+  const step5 = fixStrategy === 'aggressive'
+    ? '5. Modify any files necessary for a comprehensive, high-quality fix. Adjacent code, shared helpers, and related patterns are all in scope if improving them strengthens the solution.'
+    : fixStrategy === 'refactor'
+    ? '5. Prefer modifying only the files necessary for the fix, but you may extend the scope to adjacent code if refactoring meaningfully improves the overall solution.'
+    : '5. Only modify files that are necessary for the fix.';
+
   sections.push('1. Search the codebase for files related to the crash (use class names, method names, and file names from the stack traces).');
   sections.push('2. Read and analyze those files to understand the context.');
   sections.push('3. Identify the root cause of the crash.');
-  sections.push('4. Apply a minimal, targeted fix that prevents the crash without introducing regressions.');
-  sections.push('5. Only modify files that are necessary for the fix.');
+  sections.push(step4);
+  sections.push(step5);
   sections.push('6. Follow existing code style and conventions.');
   sections.push('7. Do not run git commit/push commands and do not create pull requests; this workflow handles git and PR operations automatically.');
   sections.push('8. In your final analysis, include clear sections: Root Cause, Solution, Changes Made, and Test Plan.');

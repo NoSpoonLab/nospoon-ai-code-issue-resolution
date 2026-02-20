@@ -146,6 +146,8 @@ export interface CrashReportData {
   counter?: number;
 }
 
+export type FixStrategy = 'minimal' | 'refactor' | 'aggressive';
+
 export interface ActionInputs {
   crashReport: CrashReportData;
   crashReports: CrashReportData[];
@@ -162,6 +164,7 @@ export interface ActionInputs {
   routerRulesJson: string;
   routerMode: 'first-match' | 'fanout';
   routerDefaultTargetJson: string;
+  fixStrategy: FixStrategy;
   additionalPrompt: string;
 }
 

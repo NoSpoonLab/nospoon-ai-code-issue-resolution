@@ -1,5 +1,5 @@
-import { CrashReportData, CrashThread, NativeCrash, ManagedException, LogMessage, UserMetadata } from '../types';
-export declare function buildPrompt(report: CrashReportData, additionalPrompt?: string, relatedReports?: CrashReportData[]): string;
+import { CrashReportData, CrashThread, FixStrategy, NativeCrash, ManagedException, LogMessage, UserMetadata } from '../types';
+export declare function buildPrompt(report: CrashReportData, additionalPrompt?: string, relatedReports?: CrashReportData[], fixStrategy?: FixStrategy): string;
 export declare function formatTimestamp(ts: number): string;
 export declare function formatHex(value: string | number | undefined): string;
 export declare function formatLogType(type: number | undefined): string;

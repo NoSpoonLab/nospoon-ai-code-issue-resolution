@@ -15,10 +15,11 @@ GitHub Action to analyze Unity/Backtrace crash reports, apply a fix with Claude 
 
 ## Flow
 
-1. Parse and validate `crash_report` (single object or array of objects).
-2. If `use_router=true`, try routing using rules.
-3. If no route matches, run Claude in the local repository.
-4. Detect changes, commit/push, and create a PR.
+1. Resolve crash report data: from `crash_report_file` (local path or URL) if provided, otherwise from `crash_report` inline string.
+2. Parse and validate the crash report (single object or array of objects).
+3. If `use_router=true`, try routing using rules.
+4. If no route matches, run Claude in the local repository using the configured `fix_strategy`.
+5. Detect changes, commit/push, and create a PR.
 
 ## Quick Start (basic)
 
@@ -110,15 +111,19 @@ Important notes:
 
 | Input | Required | Default | Usage |
 |---|---|---|---|
-| `crash_report` | yes | - | Crash report JSON serialized as string (single object or array) |
+| `crash_report` | no* | - | Crash report JSON serialized as string (single object or array). Ignored when `crash_report_file` is set |
+| `crash_report_file` | no* | - | Local path or remote URL (http/https) to a JSON file. Takes priority over `crash_report`. Use for large payloads |
 | `anthropic_api_key` | yes | - | Claude API key |
 | `github_token` | no | `github.token` | Token used for push/PR/dispatch (PAT recommended for advanced use) |
 | `base_branch` | no | auto-detect | PR base branch |
 | `dry_run` | no | `false` | Analyze only, without commit/PR |
+| `fix_strategy` | no | `minimal` | Claude fix scope: `minimal` (smallest change), `refactor` (can reorganize affected area), `aggressive` (full freedom to improve code quality) |
 | `use_router` | no | `false` | Enable cross-repo routing |
 | `router_rules_json` | no | `""` | Routing rules |
 | `router_default_target_json` | no | `""` | Fallback target when no rule matches |
 | `claude_model` | no | `claude-opus-4-6` | Claude model |
+
+\* At least one of `crash_report` or `crash_report_file` must be provided.
 
 Full reference: `action.yml`.
 

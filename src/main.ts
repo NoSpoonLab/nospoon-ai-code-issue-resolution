@@ -1,6 +1,8 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { ActionInputs } from './types';
+import { ActionInputs, FixStrategy } from './types';
 import { DEFAULTS } from './constants';
 import { parseAndValidateCrashReports } from './input/validator';
 import { ensureClaudeCli } from './claude/installer';
@@ -23,8 +25,40 @@ import { ActionError, handleError } from './utils/error-handler';
 import { dispatchRoutedWorkflows } from './router/dispatcher';
 import { parseRouterDefaultTarget, parseRouterRules, routeCrashReport } from './router/router';
 
-export function getInputs(): ActionInputs {
-  const crashReportRaw = core.getInput('crash_report', { required: true });
+export async function getInputs(): Promise<ActionInputs> {
+  const crashReportFile = core.getInput('crash_report_file').trim();
+  const crashReportInline = core.getInput('crash_report').trim();
+
+  let crashReportRaw: string;
+  if (crashReportFile) {
+    const isUrl = crashReportFile.startsWith('http://') || crashReportFile.startsWith('https://');
+    if (isUrl) {
+      try {
+        const response = await fetch(crashReportFile);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        }
+        crashReportRaw = await response.text();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new ActionError(`Cannot fetch crash_report_file from "${crashReportFile}": ${msg}`, 'input-validation');
+      }
+      logger.info(`Loaded crash reports from URL: ${crashReportFile}`);
+    } else {
+      const filePath = path.resolve(crashReportFile);
+      try {
+        crashReportRaw = fs.readFileSync(filePath, 'utf-8');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new ActionError(`Cannot read crash_report_file "${filePath}": ${msg}`, 'input-validation');
+      }
+      logger.info(`Loaded crash reports from file: ${filePath}`);
+    }
+  } else if (crashReportInline) {
+    crashReportRaw = crashReportInline;
+  } else {
+    throw new ActionError('Either crash_report or crash_report_file must be provided', 'input-validation');
+  }
   const anthropicApiKey = core.getInput('anthropic_api_key', { required: true });
   const githubToken = core.getInput('github_token') || process.env.GITHUB_TOKEN || '';
   const baseBranch = core.getInput('base_branch') || '';
@@ -38,6 +72,8 @@ export function getInputs(): ActionInputs {
   const routerRulesJson = core.getInput('router_rules_json') || '';
   const routerModeRaw = core.getInput('router_mode') || 'first-match';
   const routerDefaultTargetJson = core.getInput('router_default_target_json') || '';
+  const fixStrategyRaw = core.getInput('fix_strategy') || 'minimal';
+  const fixStrategy = parseFixStrategy(fixStrategyRaw);
   const additionalPrompt = core.getInput('additional_prompt') || '';
   const claudePermissionMode = core.getInput('claude_permission_mode') || process.env.CLAUDE_PERMISSION_MODE || 'plan';
   const claudeAutoApplyPlan = core.getInput('claude_auto_apply_plan') || process.env.CLAUDE_AUTO_APPLY_PLAN || 'true';
@@ -78,6 +114,7 @@ export function getInputs(): ActionInputs {
     routerRulesJson,
     routerMode,
     routerDefaultTargetJson,
+    fixStrategy,
     additionalPrompt,
   };
 }
@@ -85,7 +122,7 @@ export function getInputs(): ActionInputs {
 export async function run(): Promise<void> {
   // 1. Parse inputs
   logger.info('Parsing and validating inputs...');
-  const inputs = getInputs();
+  const inputs = await getInputs();
   const report = inputs.crashReport;
   const relatedReports = inputs.crashReports.slice(1);
   logger.info(`Crash report: ${report.name} v${report.version} (${report.report_id})`);
@@ -134,7 +171,7 @@ export async function run(): Promise<void> {
   const branchStartHead = await getCurrentHead();
 
   // 4. Build prompt
-  const prompt = buildPrompt(report, inputs.additionalPrompt, relatedReports);
+  const prompt = buildPrompt(report, inputs.additionalPrompt, relatedReports, inputs.fixStrategy);
   logger.debug(`Prompt length: ${prompt.length} characters`);
 
   // 5. Execute Claude CLI
@@ -282,6 +319,17 @@ function readBooleanEnv(name: string, defaultValue: boolean): boolean {
 
 function readBoolean(value: string): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function parseFixStrategy(value: string): FixStrategy {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'minimal' || normalized === 'refactor' || normalized === 'aggressive') {
+    return normalized;
+  }
+  throw new ActionError(
+    `fix_strategy must be "minimal", "refactor", or "aggressive" (received: ${value})`,
+    'input-validation'
+  );
 }
 
 function parseRouterMode(value: string): 'first-match' | 'fanout' {

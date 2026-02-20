@@ -36000,10 +36000,15 @@ const LOG_TYPE_MAP = {
     4: 'Exception',
     5: 'Debug',
 };
-function buildPrompt(report, additionalPrompt, relatedReports = []) {
+function buildPrompt(report, additionalPrompt, relatedReports = [], fixStrategy = 'minimal') {
     const sections = [];
+    const strategyIntro = fixStrategy === 'aggressive'
+        ? 'Your goal is to identify the root cause of the crash and deliver a comprehensive, high-quality fix. You have full freedom to improve the affected code, fix similar latent issues in nearby code, restructure patterns, and extract helpers where beneficial. Prioritize long-term correctness and code quality over minimal change.'
+        : fixStrategy === 'refactor'
+            ? 'Your goal is to identify the root cause of the crash, find the relevant source files, and apply a fix. You may refactor the affected code if it improves correctness, safety, or maintainability — keep changes focused on the affected area and avoid unrelated modifications.'
+            : 'Your goal is to identify the root cause of the crash, find the relevant source files, and apply a proper, targeted fix. Do not refactor surrounding code or make changes unrelated to the crash.';
     sections.push('You are an expert Unity/C# developer analyzing a crash report from Unity Cloud Diagnostics / Backtrace.');
-    sections.push('Your goal is to identify the root cause of the crash, find the relevant source files, and apply a proper, targeted fix. Do not refactor surrounding code or make changes unrelated to the crash.');
+    sections.push(strategyIntro);
     sections.push('You may consult the internet for API docs, library behavior, or platform specifics if it helps the fix.\n');
     // Crash Report Summary
     sections.push('## Crash Report Summary\n');
@@ -36074,11 +36079,21 @@ function buildPrompt(report, additionalPrompt, relatedReports = []) {
     }
     // Instructions
     sections.push('## Instructions\n');
+    const step4 = fixStrategy === 'aggressive'
+        ? '4. Apply a comprehensive fix. You have full freedom to improve the affected code, fix similar latent issues in nearby code, restructure patterns, and extract helpers where beneficial.'
+        : fixStrategy === 'refactor'
+            ? '4. Apply a fix that resolves the crash. You may refactor the affected code if it improves correctness, prevents similar issues, or increases robustness — but avoid changes unrelated to the crash area.'
+            : '4. Apply a minimal, targeted fix that prevents the crash without introducing regressions.';
+    const step5 = fixStrategy === 'aggressive'
+        ? '5. Modify any files necessary for a comprehensive, high-quality fix. Adjacent code, shared helpers, and related patterns are all in scope if improving them strengthens the solution.'
+        : fixStrategy === 'refactor'
+            ? '5. Prefer modifying only the files necessary for the fix, but you may extend the scope to adjacent code if refactoring meaningfully improves the overall solution.'
+            : '5. Only modify files that are necessary for the fix.';
     sections.push('1. Search the codebase for files related to the crash (use class names, method names, and file names from the stack traces).');
     sections.push('2. Read and analyze those files to understand the context.');
     sections.push('3. Identify the root cause of the crash.');
-    sections.push('4. Apply a minimal, targeted fix that prevents the crash without introducing regressions.');
-    sections.push('5. Only modify files that are necessary for the fix.');
+    sections.push(step4);
+    sections.push(step5);
     sections.push('6. Follow existing code style and conventions.');
     sections.push('7. Do not run git commit/push commands and do not create pull requests; this workflow handles git and PR operations automatically.');
     sections.push('8. In your final analysis, include clear sections: Root Cause, Solution, Changes Made, and Test Plan.');
@@ -37264,6 +37279,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getInputs = getInputs;
 exports.run = run;
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
 const constants_1 = __nccwpck_require__(7242);
@@ -37277,8 +37294,44 @@ const logger_1 = __nccwpck_require__(7893);
 const error_handler_1 = __nccwpck_require__(1694);
 const dispatcher_1 = __nccwpck_require__(1944);
 const router_1 = __nccwpck_require__(8680);
-function getInputs() {
-    const crashReportRaw = core.getInput('crash_report', { required: true });
+async function getInputs() {
+    const crashReportFile = core.getInput('crash_report_file').trim();
+    const crashReportInline = core.getInput('crash_report').trim();
+    let crashReportRaw;
+    if (crashReportFile) {
+        const isUrl = crashReportFile.startsWith('http://') || crashReportFile.startsWith('https://');
+        if (isUrl) {
+            try {
+                const response = await fetch(crashReportFile);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+                }
+                crashReportRaw = await response.text();
+            }
+            catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                throw new error_handler_1.ActionError(`Cannot fetch crash_report_file from "${crashReportFile}": ${msg}`, 'input-validation');
+            }
+            logger_1.logger.info(`Loaded crash reports from URL: ${crashReportFile}`);
+        }
+        else {
+            const filePath = path.resolve(crashReportFile);
+            try {
+                crashReportRaw = fs.readFileSync(filePath, 'utf-8');
+            }
+            catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                throw new error_handler_1.ActionError(`Cannot read crash_report_file "${filePath}": ${msg}`, 'input-validation');
+            }
+            logger_1.logger.info(`Loaded crash reports from file: ${filePath}`);
+        }
+    }
+    else if (crashReportInline) {
+        crashReportRaw = crashReportInline;
+    }
+    else {
+        throw new error_handler_1.ActionError('Either crash_report or crash_report_file must be provided', 'input-validation');
+    }
     const anthropicApiKey = core.getInput('anthropic_api_key', { required: true });
     const githubToken = core.getInput('github_token') || process.env.GITHUB_TOKEN || '';
     const baseBranch = core.getInput('base_branch') || '';
@@ -37292,6 +37345,8 @@ function getInputs() {
     const routerRulesJson = core.getInput('router_rules_json') || '';
     const routerModeRaw = core.getInput('router_mode') || 'first-match';
     const routerDefaultTargetJson = core.getInput('router_default_target_json') || '';
+    const fixStrategyRaw = core.getInput('fix_strategy') || 'minimal';
+    const fixStrategy = parseFixStrategy(fixStrategyRaw);
     const additionalPrompt = core.getInput('additional_prompt') || '';
     const claudePermissionMode = core.getInput('claude_permission_mode') || process.env.CLAUDE_PERMISSION_MODE || 'plan';
     const claudeAutoApplyPlan = core.getInput('claude_auto_apply_plan') || process.env.CLAUDE_AUTO_APPLY_PLAN || 'true';
@@ -37328,13 +37383,14 @@ function getInputs() {
         routerRulesJson,
         routerMode,
         routerDefaultTargetJson,
+        fixStrategy,
         additionalPrompt,
     };
 }
 async function run() {
     // 1. Parse inputs
     logger_1.logger.info('Parsing and validating inputs...');
-    const inputs = getInputs();
+    const inputs = await getInputs();
     const report = inputs.crashReport;
     const relatedReports = inputs.crashReports.slice(1);
     logger_1.logger.info(`Crash report: ${report.name} v${report.version} (${report.report_id})`);
@@ -37375,7 +37431,7 @@ async function run() {
     });
     const branchStartHead = await (0, operations_1.getCurrentHead)();
     // 4. Build prompt
-    const prompt = (0, prompt_builder_1.buildPrompt)(report, inputs.additionalPrompt, relatedReports);
+    const prompt = (0, prompt_builder_1.buildPrompt)(report, inputs.additionalPrompt, relatedReports, inputs.fixStrategy);
     logger_1.logger.debug(`Prompt length: ${prompt.length} characters`);
     // 5. Execute Claude CLI
     const autoApplyPlan = readBooleanEnv('CLAUDE_AUTO_APPLY_PLAN', true);
@@ -37505,6 +37561,13 @@ function readBooleanEnv(name, defaultValue) {
 }
 function readBoolean(value) {
     return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+function parseFixStrategy(value) {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'minimal' || normalized === 'refactor' || normalized === 'aggressive') {
+        return normalized;
+    }
+    throw new error_handler_1.ActionError(`fix_strategy must be "minimal", "refactor", or "aggressive" (received: ${value})`, 'input-validation');
 }
 function parseRouterMode(value) {
     const normalized = value.trim().toLowerCase();

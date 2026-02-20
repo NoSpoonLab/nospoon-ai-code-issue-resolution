@@ -8,8 +8,13 @@ branding:
 
 inputs:
   crash_report:
-    description: 'JSON string containing a Unity/Backtrace crash report object or an array of crash report objects'
-    required: true
+    description: 'JSON string containing a Unity/Backtrace crash report object or an array of crash report objects. Ignored when crash_report_file is provided.'
+    required: false
+    default: ''
+  crash_report_file:
+    description: 'Local path or remote URL (http/https) to a JSON file containing crash report data (object or array). Takes priority over crash_report when provided. Use this for large payloads that exceed GitHub Actions input size limits.'
+    required: false
+    default: ''
   anthropic_api_key:
     description: 'Anthropic API key for Claude'
     required: true
@@ -60,6 +65,10 @@ inputs:
     description: 'Optional JSON target used when no router rule matches'
     required: false
     default: ''
+  fix_strategy:
+    description: 'Fix strategy for Claude: "minimal" applies the smallest targeted change to stop the crash; "refactor" allows broader refactoring of the affected area; "aggressive" gives Claude full freedom to improve the code, fix similar latent issues nearby, and restructure patterns'
+    required: false
+    default: 'minimal'
   additional_prompt:
     description: 'Additional instructions appended to the default prompt (project context, special rules, etc.)'
     required: false
