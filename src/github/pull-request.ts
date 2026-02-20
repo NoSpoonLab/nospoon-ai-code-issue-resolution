@@ -149,7 +149,6 @@ export function buildPRBody(options: CreatePROptions): string {
     .replace('{{changes_made}}', changesMade)
     .replace('{{files}}', filesFormatted)
     .replace('{{test_plan}}', testPlan)
-    .replace('{{analysis}}', options.analysis)
     .replace('{{cost}}', options.costUsd.toFixed(4));
 }
 
